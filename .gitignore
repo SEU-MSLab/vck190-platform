@@ -1,0 +1,5 @@
+fpga/*
+!fpga/Makefile
+*.log
+*.jou
+.Xil/
