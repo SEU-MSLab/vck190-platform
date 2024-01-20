@@ -5,9 +5,8 @@
 */
 #include "sys_intr.h"
 
-/*
- * Init XScuGic and Exception
- */
+XScuGic Intc; //GIC
+
 int Init_Intr_System()
 {
 	int Status;
@@ -32,7 +31,6 @@ int Init_Intr_System()
 	Xil_ExceptionInit();
 	Xil_ExceptionRegisterHandler(XIL_EXCEPTION_ID_INT,
 			(Xil_ExceptionHandler)INTC_HANDLER,
-			//TODO:确定能否改为(void)Intc
 			(void *)&Intc);
 
 	Xil_ExceptionEnable();

@@ -9,59 +9,57 @@
 #define TCP_TRANSMISSION_H_
 
 #include <stdio.h>
+#include <string.h>
 #include "xil_types.h"
-#include "Xscugic.h"
-#include "Xil_exception.h"
 #include "DMA_support.h"
+#include "lwip/err.h"
+#include "lwip/tcp.h"
+#include "lwip/init.h"
+#include "lwipopts.h"
+#include "sleep.h"
+#include "timer_intr.h"
+#include "netif/xadapter.h"
+#include "DPD.h"
+#include "sys_opt.h"
 
 
-#define TCP_START_CMD       		0xAA55FFA0
-#define TCP_STOP_CMD         		0xAA55FFB1
-#define TCP_RESET_CMD        		0xAA55FFC1
-#define TCP_DACDATA_CMD				0xAA55FFD1
 
-//TODO: putty设置本机端口为5001
+
+
 #define PC_TCP_SERVER_PORT     		5001
 
-#define HEADER_ID0      			0xAA55AA55
-#define HEADER_ID1      			0xAA55AA55
-
-#define HEADER_SIZE             (16)
 #define ADC_PACKET_LENGTH       (16 * 1023)
-#define TCP_PACKET_SIZE         (ADC_PACKET_LENGTH + HEADER_SIZE)
+#define TCP_PACKET_SIZE       	ADC_PACKET_LENGTH
 
-
-volatile int tcp_trans_start;
-volatile int tcp_trans_reset;
-unsigned first_trans_start;
-volatile u32 packet_index;
-volatile unsigned tcp_client_connected;
-
-struct tcp_pcb *connected_pcb;
-struct tcp_pcb *request_pcb;
-volatile int tcp_trans_done;
-volatile u32 file_length;
-
-struct ip_addr ipaddress;
-u16_t port;
-
-//
-u32 *tcp_rx_buffer = TxPacket;
-
-typedef struct packet_header
+enum TCP_CMD
 {
-	u32 ID0;
-	u32 ID1;
-	u32 frame_cnt;
-	u32 length;
+	TCP_START_CMD = 1, TCP_STOP_CMD, TCP_RESET_CMD, TCP_DACDATA_CMD, TCP_MP_CMD, TCP_PRVTDNN_CMD,
+};
 
-}packet_header;
+enum BUFFER_TYPE
+{
+	CMD_BUFFER = 1, DA_BUFFER, MP_BUFFER, PRVTDNN_BUFFER,
+};
 
-packet_header *header_p;
+extern volatile unsigned tcp_client_connected;
 
+extern struct tcp_pcb *connected_pcb;
+extern struct tcp_pcb *request_pcb;
+
+extern ip_addr_t ipaddress;
+extern u16_t port;
+
+extern u32 *tcp_rx_buffer;
+extern volatile enum TCP_CMD enum_recv_cmd;
+extern volatile enum BUFFER_TYPE enum_recv_buffer;
+
+
+
+int lwip_sys_init();
 int tcp_send_init();
 void send_received_data();
 err_t tcp_connected_callback(void *arg, struct tcp_pcb *tpcb, err_t err);
-
+void tcp_client_close(struct tcp_pcb *pcb);
+void tcp_client_err(void *arg, err_t err);
 
 #endif /* TCP_TRANSMISSION_H_ */

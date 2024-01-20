@@ -7,24 +7,48 @@
 
 #include "DMA_support.h"
 
-/*****************************************************************************/
-/*
-*
-* This function setups the interrupt system so interrupts can occur for the
-* DMA, it assumes XScuGic component exists in the hardware system.
-*
-* @param	IntcInstancePtr is a pointer to the instance of the XScuGic.
-* @param	AxiDmaPtr is a pointer to the instance of the DMA engine
-* @param	TxIntrId is the TX channel Interrupt ID.
-* @param	RxIntrId is the RX channel Interrupt ID.
-*
-* @return
-*		- XST_SUCCESS if successful,
-*		- XST_FAILURE.if not successful
-*
-* @note		None.
-*
-******************************************************************************/
+
+u32 *TxPacket = (u32 *) TX_BUFFER_BASE;
+u32 *RxPacket = (u32 *) RX_BUFFER_BASE;
+u32 *CMDPacket = (u32 *) CMD_BUFFER_BASE;
+
+
+volatile int Error;
+
+XAxiDma AxiDma;
+u16 *RxBufferPtr;
+
+u16 SinWave[256] = {0x0000,0x0031,0x0062,0x0093,0x00C4,0x00F5,0x0125,0x0156,
+		0x0186,0x01B6,0x01E6,0x0215,0x0245,0x0273,0x02A2,0x02D0,0x02FD,
+		0x032A,0x0357,0x0383,0x03AF,0x03DA,0x0404,0x042E,0x0457,0x0480,
+		0x04A7,0x04CE,0x04F5,0x051A,0x053F,0x0563,0x0586,0x05A8,0x05CA,
+		0x05EA,0x060A,0x0629,0x0646,0x0663,0x067F,0x069A,0x06B3,0x06CC,
+		0x06E4,0x06FA,0x0710,0x0724,0x0738,0x074A,0x075B,0x076B,0x077A,
+		0x0788,0x0794,0x079F,0x07AA,0x07B3,0x07BA,0x07C1,0x07C6,0x07CB,
+		0x07CE,0x07CF,0x07D0,0x07CF,0x07CE,0x07CB,0x07C6,0x07C1,0x07BA,
+		0x07B3,0x07AA,0x079F,0x0794,0x0788,0x077A,0x076B,0x075B,0x074A,
+		0x0738,0x0724,0x0710,0x06FA,0x06E4,0x06CC,0x06B3,0x069A,0x067F,
+		0x0663,0x0646,0x0629,0x060A,0x05EA,0x05CA,0x05A8,0x0586,0x0563,
+		0x053F,0x051A,0x04F5,0x04CE,0x04A7,0x0480,0x0457,0x042E,0x0404,
+		0x03DA,0x03AF,0x0383,0x0357,0x032A,0x02FD,0x02D0,0x02A2,0x0273,
+		0x0245,0x0215,0x01E6,0x01B6,0x0186,0x0156,0x0125,0x00F5,0x00C4,
+		0x0093,0x0062,0x0031,0x0000,0xFFCF,0xFF9E,0xFF6D,0xFF3C,0xFF0B,
+		0xFEDB,0xFEAA,0xFE7A,0xFE4A,0xFE1A,0xFDEB,0xFDBB,0xFD8D,0xFD5E,
+		0xFD30,0xFD03,0xFCD6,0xFCA9,0xFC7D,0xFC51,0xFC26,0xFBFC,0xFBD2,
+		0xFBA9,0xFB80,0xFB59,0xFB32,0xFB0B,0xFAE6,0xFAC1,0xFA9D,0xFA7A,
+		0xFA58,0xFA36,0xFA16,0xF9F6,0xF9D7,0xF9BA,0xF99D,0xF981,0xF966,
+		0xF94D,0xF934,0xF91C,0xF906,0xF8F0,0xF8DC,0xF8C8,0xF8B6,0xF8A5,
+		0xF895,0xF886,0xF878,0xF86C,0xF861,0xF856,0xF84D,0xF846,0xF83F,
+		0xF83A,0xF835,0xF832,0xF831,0xF830,0xF831,0xF832,0xF835,0xF83A,
+		0xF83F,0xF846,0xF84D,0xF856,0xF861,0xF86C,0xF878,0xF886,0xF895,
+		0xF8A5,0xF8B6,0xF8C8,0xF8DC,0xF8F0,0xF906,0xF91C,0xF934,0xF94D,
+		0xF966,0xF981,0xF99D,0xF9BA,0xF9D7,0xF9F6,0xFA16,0xFA36,0xFA58,
+		0xFA7A,0xFA9D,0xFAC1,0xFAE6,0xFB0B,0xFB32,0xFB59,0xFB80,0xFBA9,
+		0xFBD2,0xFBFC,0xFC26,0xFC51,0xFC7D,0xFCA9,0xFCD6,0xFD03,0xFD30,
+		0xFD5E,0xFD8D,0xFDBB,0xFDEB,0xFE1A,0xFE4A,0xFE7A,0xFEAA,0xFEDB,
+		0xFF0B,0xFF3C,0xFF6D,0xFF9E,0xFFCF,};
+
+
 int DMA_SetupIntrSystem()
 {
 	XAxiDma_BdRing *TxRingPtr = XAxiDma_GetTxRing(&AxiDma);
@@ -60,22 +84,7 @@ int DMA_SetupIntrSystem()
 }
 
 
-/*****************************************************************************/
-/*
-*
-* This is the DMA TX Interrupt handler function.
-*
-* It gets the interrupt status from the hardware, acknowledges it, and if any
-* error happens, it resets the hardware. Otherwise, if a completion interrupt
-* presents, then it calls the callback function.
-*
-* @param	Callback is a pointer to TX channel of the DMA engine.
-*
-* @return	None.
-*
-* @note		None.
-*
-******************************************************************************/
+// Callback is a pointer to TX channel of the DMA engine
 void DMA_TxIntrHandler(void *Callback)
 {
 	XAxiDma_BdRing *TxRingPtr = (XAxiDma_BdRing *) Callback;
@@ -132,36 +141,27 @@ void DMA_TxIntrHandler(void *Callback)
 		XAxiDma_Bd *BdPtr;
 
 		/* Get all processed BDs from hardware */
-		BdCount = XAxiDma_BdRingFromHw(TxRingPtr, XAXIDMA_ALL_BDS, &BdPtr);
+//		BdCount = XAxiDma_BdRingFromHw(TxRingPtr, XAXIDMA_ALL_BDS, &BdPtr);
 		/* Don't need to do anything in cyclic mode */
 	}
 }
 
 
-/*****************************************************************************/
-/*
-*
-* This is the DMA RX interrupt handler function
-*
-* It gets the interrupt status from the hardware, acknowledges it, and if any
-* error happens, it resets the hardware. Otherwise, if a completion interrupt
-* presents, then it calls the callback function.
-*
-* @param	Callback is a pointer to RX channel of the DMA engine.
-*
-* @return	None.
-*
-* @note		None.
-*
-******************************************************************************/
+// Callback is a pointer to RX channel of the DMA engine.
 void DMA_RxIntrHandler(void *Callback)
 {
+	xil_printf("RX Intr Handler start! \r\n");
 	XAxiDma_BdRing *RxRingPtr = (XAxiDma_BdRing *) Callback;
 	u32 IrqStatus;
 	int TimeOut;
+	int Status;
+	int FreeBdCount;
 
 	/* Read pending interrupts */
 	IrqStatus = XAxiDma_BdRingGetIrq(RxRingPtr);
+
+	FreeBdCount = XAxiDma_BdRingGetFreeCnt(RxRingPtr);
+	xil_printf("%d BDs left free in RX hander \r\n", FreeBdCount);
 
 	/* Acknowledge pending interrupts */
 	XAxiDma_BdRingAckIrq(RxRingPtr, IrqStatus);
@@ -197,7 +197,7 @@ void DMA_RxIntrHandler(void *Callback)
 		}
 
 		if(!XAxiDma_ResetIsDone(&AxiDma)){
-			xil_printf("DMA reset is failed")
+			xil_printf("DMA reset is failed");
 		}
 
 		return;
@@ -215,6 +215,11 @@ void DMA_RxIntrHandler(void *Callback)
 		/* Get finished BDs from hardware but do nothing*/
 		BdCount = XAxiDma_BdRingFromHw(RxRingPtr, XAXIDMA_ALL_BDS, &BdPtr);
 		BdCurPtr = BdPtr;
+		if(BdCount == 0)
+			// everytime it will return this line, because the cache invalidate
+			xil_printf("RX intr No RX BD fetch from HW! \r\n");
+		else
+			xil_printf("%d BD fetch from HW. \r\n", BdCount);
 		for (Index = 0; Index < BdCount; Index++) {
 
 			/*
@@ -226,6 +231,7 @@ void DMA_RxIntrHandler(void *Callback)
 			if ((BdSts & XAXIDMA_BD_STS_ALL_ERR_MASK) ||
 				(!(BdSts & XAXIDMA_BD_STS_COMPLETE_MASK))) {
 				Error = 1;
+				xil_printf("RX BD back with error!");
 				break;
 			}
 
@@ -239,15 +245,6 @@ void DMA_RxIntrHandler(void *Callback)
 			Error = 1;
 			xil_printf("BD free failed!\r\n");
 		}
-
-		if(packet_trans_done)
-			xil_printf("last lwip transmission has not finished!\r\n");
-		else
-		{
-			/*set the axidma done flag*/
-			packet_trans_done = 1;
-
-		}
 	}
 
 
@@ -255,10 +252,12 @@ void DMA_RxIntrHandler(void *Callback)
 }
 
 
-int DMA_Init(XAxiDma *DMAPtr,u32 DeviceId)
+int DMA_Init()
 {
 	int Status;
 	XAxiDma_Config *Config=NULL;
+	XAxiDma *DMAPtr = &AxiDma;
+	u32 DeviceId = DMA_DEV_ID;
 
 	Config = XAxiDma_LookupConfig(DeviceId);
 	if (!Config) {
@@ -278,11 +277,9 @@ int DMA_Init(XAxiDma *DMAPtr,u32 DeviceId)
 		xil_printf("Device doesn't configured as SG mode! \r\n");
 		return XST_FAILURE;
 	}
-	return XST_SUCCESS;
 
 	/* Initialize flags before start transfer test  */
 	Error = 0;
-	packet_trans_done = 0;
 
 
 	/* Set up TX/RX channels to be ready to transmit and receive packets */
@@ -294,10 +291,11 @@ int DMA_Init(XAxiDma *DMAPtr,u32 DeviceId)
 		return XST_FAILURE;
 	}
 
-	Status = DMA_RxSetup(&AxiDma);
-	if (Status != XST_SUCCESS) {
 
-		xil_printf("Failed RX setup\r\n");
+
+	Status = DMA_SetupIntrSystem();
+	if (Status != XST_SUCCESS) {
+		xil_printf("Failed DMA Interrupt init\r\n");
 		return XST_FAILURE;
 	}
 
@@ -306,20 +304,7 @@ int DMA_Init(XAxiDma *DMAPtr,u32 DeviceId)
 }
 
 
-/*****************************************************************************/
-/*
-*
-* This function sets up the TX channel of a DMA engine to be ready for packet
-* transmission.
-*
-* @param	AxiDmaInstPtr is the pointer to the instance of the DMA engine.
-*
-* @return	- XST_SUCCESS if the setup is successful.
-*		- XST_FAILURE otherwise.
-*
-* @note		None.
-*
-******************************************************************************/
+// AxiDmaInstPtr is the pointer to the instance of the DMA engine.
 int DMA_TxSetup(XAxiDma * AxiDmaInstPtr)
 {
 	XAxiDma_BdRing *TxRingPtr = XAxiDma_GetTxRing(AxiDmaInstPtr);
@@ -375,20 +360,7 @@ int DMA_TxSetup(XAxiDma * AxiDmaInstPtr)
 }
 
 
-/*****************************************************************************/
-/*
-*
-* This function sets up RX channel of the DMA engine to be ready for packet
-* reception
-*
-* @param	AxiDmaInstPtr is the pointer to the instance of the DMA engine.
-*
-* @return	- XST_SUCCESS if the setup is successful.
-*		- XST_FAILURE if fails.
-*
-* @note		None.
-*
-******************************************************************************/
+// AxiDmaInstPtr is the pointer to the instance of the DMA engine.
 int DMA_RxSetup(XAxiDma * AxiDmaInstPtr)
 {
 	XAxiDma_BdRing *RxRingPtr;
@@ -407,6 +379,7 @@ int DMA_RxSetup(XAxiDma * AxiDmaInstPtr)
 	XAxiDma_BdRingIntDisable(RxRingPtr, XAXIDMA_IRQ_ALL_MASK);
 
 	/* Setup Rx BD space */
+	// use as much BD as possible, 65536 / 64 = 1024 BDs
 	BdCount = XAxiDma_BdRingCntCalc(XAXIDMA_BD_MINIMUM_ALIGNMENT,
 				RX_BD_SPACE_HIGH - RX_BD_SPACE_BASE + 1);
 
@@ -430,7 +403,9 @@ int DMA_RxSetup(XAxiDma * AxiDmaInstPtr)
 
 	/* Attach buffers to RxBD ring so we are ready to receive packets */
 	FreeBdCount = XAxiDma_BdRingGetFreeCnt(RxRingPtr);
+	xil_printf("%d BDs add to Pre-process stage \r\n", FreeBdCount);
 
+	// To Pre-process
 	Status = XAxiDma_BdRingAlloc(RxRingPtr, FreeBdCount, &BdPtr);
 	if (Status != XST_SUCCESS) {
 		xil_printf("Rx bd alloc failed with %d\r\n", Status);
@@ -438,13 +413,12 @@ int DMA_RxSetup(XAxiDma * AxiDmaInstPtr)
 	}
 
 	BdCurPtr = BdPtr;
-	//TODO:考虑是否要将RxBufferPtr变成u16 *类型
-	RxBufferPtr = RX_BUFFER_BASE;
-//	RxBufferPtr[1] = RX_BUFFER1_BASE;
+
+	RxBufferPtr = (u16 *)RX_BUFFER_BASE;
 
 	for (Index = 0; Index < FreeBdCount; Index++) {
 
-		Status = XAxiDma_BdSetBufAddr(BdCurPtr, RxBufferPtr);
+		Status = XAxiDma_BdSetBufAddr(BdCurPtr, (UINTPTR)RxBufferPtr);
 		if (Status != XST_SUCCESS) {
 			xil_printf("Rx set buffer addr %x on BD %x failed %d\r\n",
 			(unsigned int)RxBufferPtr,
@@ -453,11 +427,11 @@ int DMA_RxSetup(XAxiDma * AxiDmaInstPtr)
 			return XST_FAILURE;
 		}
 
-		Status = XAxiDma_BdSetLength(BdCurPtr, MAX_BD_LEN,
+		Status = XAxiDma_BdSetLength(BdCurPtr, MAX_RX_BD_LEN,
 					RxRingPtr->MaxTransferLen);
 		if (Status != XST_SUCCESS) {
 			xil_printf("Rx set length %d on BD %x failed %d\r\n",
-			    MAX_BD_LEN, (UINTPTR)BdCurPtr, Status);
+			    MAX_RX_BD_LEN, (UINTPTR)BdCurPtr, Status);
 
 			return XST_FAILURE;
 		}
@@ -469,9 +443,13 @@ int DMA_RxSetup(XAxiDma * AxiDmaInstPtr)
 
 		XAxiDma_BdSetId(BdCurPtr, RxBufferPtr);
 
-		RxBufferPtr += MAX_BD_LEN;
+		RxBufferPtr += MAX_RX_BD_LEN / 2;
+
 		BdCurPtr = (XAxiDma_Bd *)XAxiDma_BdRingNext(RxRingPtr, BdCurPtr);
 	}
+
+	// For tcp
+	RxBufferPtr = (u16 *)RX_BUFFER_BASE;
 
 	/*
 	 * Set the coalescing threshold
@@ -479,24 +457,27 @@ int DMA_RxSetup(XAxiDma * AxiDmaInstPtr)
 	 * If you would like to have multiple interrupts to happen, change
 	 * the COALESCING_COUNT to be a smaller value
 	 */
-	Status = XAxiDma_BdRingSetCoalesce(RxRingPtr, COALESCING_COUNT,
-			DELAY_TIMER_COUNT);
+	Status = XAxiDma_BdRingSetCoalesce(RxRingPtr, COALESCING_COUNT,0);
 	if (Status != XST_SUCCESS) {
 		xil_printf("Rx set coalesce failed with %d\r\n", Status);
 		return XST_FAILURE;
 	}
 
+	// Update RX BD space memory to DDR
+	Xil_DCacheInvalidateRange((UINTPTR)BdPtr, RX_BD_SPACE_HIGH - RX_BD_SPACE_BASE + 1);
+
 	Status = XAxiDma_BdRingToHw(RxRingPtr, FreeBdCount, BdPtr);
 	if (Status != XST_SUCCESS) {
-		xil_printf("Rx ToHw failed with %d\r\n", Status);
+		xil_printf("Rx To Hw failed with %d\r\n", Status);
 		return XST_FAILURE;
 	}
 
 	/* Enable all RX interrupts */
 	XAxiDma_BdRingIntEnable(RxRingPtr, XAXIDMA_IRQ_ALL_MASK);
-	/* Enable Cyclic DMA mode */
-//	XAxiDma_BdRingEnableCyclicDMA(RxRingPtr);
-//	XAxiDma_SelectCyclicMode(AxiDmaInstPtr, XAXIDMA_DEVICE_TO_DMA, 1);
+
+	Xil_DCacheFlush();
+
+	xil_printf("RX ready! \r\n");
 
 	/* Start transfer data now! */
 	Status = XAxiDma_BdRingStart(RxRingPtr);
@@ -504,6 +485,7 @@ int DMA_RxSetup(XAxiDma * AxiDmaInstPtr)
 		xil_printf("Rx start BD ring failed with %d\r\n", Status);
 		return XST_FAILURE;
 	}
+	xil_printf("RX finished! \r\n");
 
 	return XST_SUCCESS;
 }
@@ -513,8 +495,8 @@ int DMA_RxSetup(XAxiDma * AxiDmaInstPtr)
 int DMA_SendPacket()
 {
 	XAxiDma_BdRing *TxRingPtr = XAxiDma_GetTxRing(&AxiDma);
-	u8 *Packet;
-	u8 Value;
+	u16 *Packet;
+
 	XAxiDma_Bd *BdPtr, *BdCurPtr;
 	int Status;
 	int Index, Pkts;
@@ -524,40 +506,30 @@ int DMA_SendPacket()
 	 * Each packet is limited to TxRingPtr->MaxTransferLen
 	 * This will not be the case if hardware has store and forward built in
 	 */
-	if (MAX_BD_LEN * NUMBER_OF_BDS_PER_PKT >
+	if (MAX_TX_BD_LEN * NUMBER_OF_BDS_PER_PKT >
 			TxRingPtr->MaxTransferLen) {
 
 		xil_printf("Invalid total per packet transfer length for the "
 		    "packet %d/%d\r\n",
-		    MAX_BD_LEN * NUMBER_OF_BDS_PER_PKT,
+		    MAX_TX_BD_LEN * NUMBER_OF_BDS_PER_PKT,
 		    TxRingPtr->MaxTransferLen);
 
 		return XST_INVALID_PARAM;
 	}
 
-	Packet = (u8 *) TxPacket;
+	Packet = (u16 *) TxPacket;
 
-	Value = 0xC;
-
-	for(Index = 0; Index < MAX_BD_LEN * NUMBER_OF_BDS_TO_TRANSFER;
-								Index ++) {
-		Packet[Index] = Value;
-
-		Value = (Value + 1) & 0xFF;
-	}
+	Write_Data(Packet);
 
 	/* Flush the buffers before the DMA transfer, in case the Data Cache
 	 * is enabled
 	 */
-	Xil_DCacheFlushRange((UINTPTR)Packet, MAX_BD_LEN *
-							NUMBER_OF_BDS_TO_TRANSFER);
-	Xil_DCacheFlushRange((UINTPTR)RX_BUFFER_BASE, MAX_BD_LEN *
+	Xil_DCacheFlushRange((UINTPTR)Packet, MAX_TX_BD_LEN *
 							NUMBER_OF_BDS_TO_TRANSFER);
 
 	Status = XAxiDma_BdRingAlloc(TxRingPtr, NUMBER_OF_BDS_TO_TRANSFER,
 								&BdPtr);
 	if (Status != XST_SUCCESS) {
-
 		xil_printf("Failed bd alloc\r\n");
 		return XST_FAILURE;
 	}
@@ -583,11 +555,11 @@ int DMA_SendPacket()
 				return XST_FAILURE;
 			}
 
-			Status = XAxiDma_BdSetLength(BdCurPtr, MAX_BD_LEN,
+			Status = XAxiDma_BdSetLength(BdCurPtr, MAX_TX_BD_LEN,
 						TxRingPtr->MaxTransferLen);
 			if (Status != XST_SUCCESS) {
 				xil_printf("Tx set length %d on BD %x failed %d\r\n",
-				MAX_BD_LEN, (UINTPTR)BdCurPtr, Status);
+				MAX_TX_BD_LEN, (UINTPTR)BdCurPtr, Status);
 
 				return XST_FAILURE;
 			}
@@ -606,22 +578,33 @@ int DMA_SendPacket()
 			}
 
 			XAxiDma_BdSetCtrl(BdCurPtr, CrBits);
-			XAxiDma_BdSetId(BdCurPtr, BufferAddr);
+			XAxiDma_BdSetId(BdCurPtr, BufferAddr); // Use BufferAddr as ID
 
-			BufferAddr += MAX_BD_LEN;
+			// TODO: 这里是否也需要是MAX_TX_BD_LEN/2？
+			BufferAddr += MAX_TX_BD_LEN;
 			BdCurPtr = (XAxiDma_Bd *)XAxiDma_BdRingNext(TxRingPtr, BdCurPtr);
 		}
 	}
+
+	// Update TX BD space memory to DDR
+	Xil_DCacheFlushRange((UINTPTR)BdPtr, TX_BD_SPACE_HIGH - TX_BD_SPACE_BASE + 1);
 
 	/* Give the BD to hardware and the transaction start! */
 	Status = XAxiDma_BdRingToHw(TxRingPtr, NUMBER_OF_BDS_TO_TRANSFER,
 						BdPtr);
 	if (Status != XST_SUCCESS) {
-
 		xil_printf("Failed to hw, length %d\r\n",
 			(int)XAxiDma_BdGetLength(BdPtr,
 					TxRingPtr->MaxTransferLen));
 
+		return XST_FAILURE;
+	}
+
+
+	Status = DMA_RxSetup(&AxiDma);
+	if (Status != XST_SUCCESS) {
+
+		xil_printf("Failed RX setup\r\n");
 		return XST_FAILURE;
 	}
 
@@ -631,32 +614,121 @@ int DMA_SendPacket()
 int DMA_ReceivePacket()
 {
 
-	int Status;
-	int FreeBdCount;
+	int Status = XST_SUCCESS;
+	XAxiDma_BdRing *RxRingPtr;
+	int BdCount;
+	XAxiDma_Bd *BdPtr;
+	XAxiDma_Bd *BdCurPtr;
+	u32 BdSts;
+	int Index;
 
-	XAxiDma_BdRing *RxRingPtr = XAxiDma_GetRxRing(&AxiDma);
 
-	FreeBdCount = XAxiDma_BdRingGetFreeCnt(RxRingPtr);
+//	RxRingPtr = XAxiDma_GetRxRing(&AxiDma);
+//	Status = XAxiDma_BdRingStart(RxRingPtr);
+//	if (Status != XST_SUCCESS) {
+//		xil_printf("Rx start BD ring failed with %d\r\n", Status);
+//		return XST_FAILURE;
+//	}
+////
+//	BdCount = XAxiDma_BdRingFromHw(RxRingPtr, XAXIDMA_ALL_BDS, &BdPtr);
+//	BdCurPtr = BdPtr;
+//	if(BdCount == 0)
+//	{
+//		// TODO: 这个也会在发送ADC数据时打印
+//		xil_printf("DMA receive packet No RX BD fetch from HW! \r\n");
+//	}
+//	for (Index = 0; Index < BdCount; Index++) {
+//
+//		/*
+//		 * Check the flags set by the hardware for status
+//		 * If error happens, processing stops, because the DMA engine
+//		 * is halted after this BD.
+//		 */
+//		BdSts = XAxiDma_BdGetSts(BdCurPtr);
+//		if ((BdSts & XAXIDMA_BD_STS_ALL_ERR_MASK) ||
+//			(!(BdSts & XAXIDMA_BD_STS_COMPLETE_MASK))) {
+//			Error = 1;
+//			xil_printf("RX BD back with error!");
+//			break;
+//		}
+//
+//		/* Find the next processed BD */
+//		BdCurPtr = (XAxiDma_Bd *)XAxiDma_BdRingNext(RxRingPtr, BdCurPtr);
+//	}
+//
+//	/* Free all processed BDs for future transmission */
+//	Status = XAxiDma_BdRingFree(RxRingPtr, BdCount, BdPtr);
+//	if (Status != XST_SUCCESS) {
+//		Error = 1;
+//		xil_printf("BD free failed!\r\n");
+//	}
 
-	Status = XAxiDma_BdRingAlloc(RxRingPtr, FreeBdCount, &BdPtr);
-	if (Status != XST_SUCCESS) {
-		xil_printf("Rx bd alloc failed with %d\r\n", Status);
-		return XST_FAILURE;
-	}
 
-	/* launch next transfer */
-	Status = XAxiDma_BdRingToHw(RxRingPtr, NUMBER_OF_BDS_TO_TRANSFER,
-						BdPtr);
-	if (Status != XST_SUCCESS) {
-
-		xil_printf("Failed to hw, length %d\r\n",
-			(int)XAxiDma_BdGetLength(BdPtr,
-					TxRingPtr->MaxTransferLen));
-
-		return XST_FAILURE;
-	}
+	Status = DMA_RxSetup(&AxiDma);
 
 
 	return Status;
 }
 
+void Write_Data(short *Packet){
+	int Index;
+	u16 value;
+
+	// Write MAX_TX_BD_LEN * NUMBER_OF_BDS_TO_TRANSFER Byte
+
+	// DAC 3
+	value = 0;
+	for(Index = 0; Index < MAX_TX_BD_LEN * NUMBER_OF_BDS_TO_TRANSFER / 2;
+								Index = Index + 16) {
+		// Packet is u16, so one time write 2 bytes
+//		Packet[Index] = Value;
+//		Value = (Value + 1) & 0xFFFF;
+		// Index is dac3_sample0
+		// Index + 1 is dac3_sample1
+		// Index + 2 is dac3_sample2
+		// Index + 3 is dac3_sample3
+		Packet[Index] = SinWave[value++ % 256];
+		Packet[Index+1] = SinWave[value++ % 256];
+		Packet[Index+2] = SinWave[value++ % 256];
+		Packet[Index+3] = SinWave[value++ % 256];
+	}
+
+
+	// DAC 2
+	value = 64;
+	for(Index = 4; Index <  MAX_TX_BD_LEN * NUMBER_OF_BDS_TO_TRANSFER / 2; Index = Index + 16)
+	{
+		Packet[Index] = SinWave[value++ % 256];
+		Packet[Index+1] = SinWave[value++ % 256];
+		Packet[Index+2] = SinWave[value++ % 256];
+		Packet[Index+3] = SinWave[value++ % 256];
+	}
+
+	// DAC 1
+	value = 0;
+	for(Index = 8; Index <  MAX_TX_BD_LEN * NUMBER_OF_BDS_TO_TRANSFER / 2; Index = Index + 16)
+	{
+		Packet[Index] = SinWave[value++ % 256];
+		Packet[Index+1] = SinWave[value++ % 256];
+		Packet[Index+2] = SinWave[value++ % 256];
+		Packet[Index+3] = SinWave[value++ % 256];
+	}
+
+	// DAC 0
+	value = 64;
+	for(Index = 12; Index <  MAX_TX_BD_LEN * NUMBER_OF_BDS_TO_TRANSFER / 2; Index = Index + 16)
+	{
+		Packet[Index] = SinWave[value++ % 256];
+		Packet[Index+1] = SinWave[value++ % 256];
+		Packet[Index+2] = SinWave[value++ % 256];
+		Packet[Index+3] = SinWave[value++ % 256];
+	}
+
+	// adjust scale
+	for(Index = 0; Index <  MAX_TX_BD_LEN * NUMBER_OF_BDS_TO_TRANSFER / 2; Index = Index + 1)
+	{
+		Packet[Index] = Packet[Index] >> 1;
+	}
+
+
+}

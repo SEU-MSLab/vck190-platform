@@ -24,23 +24,35 @@
 #include "DMA_support.h"
 #include "sys_intr.h"
 #include "timer_intr.h"
+#include "AD9173.h"
+#include "AD6688.h"
+#include "clock.h"
 
 #include "lwip/err.h"
 #include "lwip/tcp.h"
 #include "lwipopts.h"
-#include "netif/xadapter.h"
 #include "tcp_transmission.h"
+//#include "DFX.h"
 
 
+// Go to sys_opt.h to setup some define
 
+int hardware_init();
 
 
 int main()
 {
-	init_platform();
 	int Status;
+	err_t err;
+	struct netif server_netif;
+	struct netif *netif = &server_netif;
 
-	//init JESD204B and ADC/DAC
+//	sd_init();
+//	read_pdi();
+//	dow_pdi();
+
+
+	// init JESD204B and ADC/DAC
 	Status = hardware_init();
 	if (Status != XST_SUCCESS) {
 		xil_printf("Failed hardware initialization\r\n");
@@ -48,43 +60,50 @@ int main()
 
 	xil_printf("Start DMA transfer...\r\n");
 
+
+	// Init XScuGic
+	Status = Init_Intr_System();
+	if (Status != XST_SUCCESS) {
+		xil_printf("Failed XScuGic initialization! \r\n");
+		return XST_FAILURE;
+	}
+
 	//init DMA
-	Status = DMA_Init(&AxiDma,DMA_DEV_ID);
+	Status = DMA_Init();
 	if (Status != XST_SUCCESS) {
 		xil_printf("Failed DMA initialization! \r\n");
 		return XST_FAILURE;
 	}
 
 
-	//init timer for lwip
-	Timer_init();
-
-	//init interrupt system
-	Init_Intr_System(); // initial DMA interrupt system
-	DMA_SetupIntrSystem();//setup dma interrpt system
-	Timer_Setup_Intr_System();
-
+	// Init timer for lwip
+	Status = Timer_init();
+	if (Status != XST_SUCCESS) {
+		xil_printf("Failed Timer initialization! \r\n");
+		return XST_FAILURE;
+	}
 
 	/* Send packets cyclically */
-	Status = DMA_SendPacket();
+	 Status = DMA_SendPacket();
 	if (Status != XST_SUCCESS) {
 
 		xil_printf("Failed send packet\r\n");
 		return XST_FAILURE;
 	}
 
-	/* Receive a packet */
-	Status = DMA_ReceivePacket();
-	if (Status != XST_SUCCESS) {
-		xil_printf("Failed receive packet\r\n");
+	Status = DPDInit();
+	if(Status != XST_SUCCESS) {
+		xil_printf("Failed DPD initialization\r\n");
 		return XST_FAILURE;
 	}
 
 	//init LWIP
-	Status = lwip_sys_init();
+	Status = lwip_sys_init(netif);
 	if(Status != XST_SUCCESS) {
 		xil_printf("Failed lwip initialization\r\n");
+		return XST_FAILURE;
 	}
+
 
 
 
@@ -101,8 +120,6 @@ int main()
 					return -1;
 				}
 
-//				ip_set_option(request_pcb, SOF_REUSEADDR);
-
 				err = tcp_connect(request_pcb, &ipaddress, port, tcp_connected_callback);
 				if (err != ERR_OK) {
 					xil_printf("txperf: tcp_connect returned error: %d\r\n", err);
@@ -113,31 +130,15 @@ int main()
 			TcpTmrFlag = 0;
 		}
 		/*receive input packet and control command from emac*/
-		xemacif_input(netif);//将MAC队列里的packets传输到你的LwIP/IP stack里
-
-		/*receive control command from uart1*/
-		UartPs_recv(&UartPs, 4);
+		xemacif_input(netif);
 
 		/* if connected to the server and received start command,
 		 * start receiving data from PL through AXI DMA,
 		 * then transmit the data to the PC using TCP
 		 * */
-		if(tcp_client_connected && tcp_trans_start)
-			send_received_data();
-
-		/*if received reset command, reset some PL's logic*/
-		if(tcp_trans_reset && packet_trans_done)
+		if(tcp_client_connected && enum_recv_cmd == TCP_START_CMD)
 		{
-			/*reset some PL's logic*/
-			PL_reset(&Gpio_reset);
-			/*re-initial PL's AXI DMA*/
-			DMA_Intr_Init(&AxiDma, AXIDMA_DEV_ID);
-			DMA_Intr_Enable(&Intc, &AxiDma);
-			tcp_trans_reset = 0;
-			first_trans_start = 0;
-			packet_trans_done = 0;
-			packet_index = 0;
-			xil_printf("PL reset done!\r\n");
+			send_received_data();
 		}
 	}
 
@@ -151,17 +152,28 @@ int hardware_init()
 	int Status;
 
 	xil_printf("Start hardware initialization...\n\r");
-	Xil_DCacheDisable();
-	// init_gpio
+//	Xil_DCacheDisable(); // Should not disable cache
 
-	Status = DA_GPIO_Init();
+	Status = DACLK_GPIO_Init();
 	if(Status!=XST_SUCCESS)
+	{
+		xil_printf("DACLK GPIO init failed!");
 		return Status;
+	}
+
 	Status = AD_GPIO_Init();
 	if(Status!=XST_SUCCESS)
+	{
+		xil_printf("AD GPIO init failed!");
 		return Status;
+	}
 
-	xil_printf("AD9173 chip ID is 0x%02x\n",DA_Read(0x0003));
+	HMC7044_Init();
+	AD9173_Init(0x0c, 0x00);
+	AD6688_Init();
+
+
+	xil_printf("AD9173 chip ID is 0x%02x\n",DA_Read(0x003));
 	xil_printf("AD6688 chip ID is 0x%02x\n",AD_Read(0x0003));
 	/*************************JESD************************************/
 
@@ -174,26 +186,6 @@ int hardware_init()
 	DA_check_JESD();
 	//check for RX Link quality
 	AD_check_JESD();
-
-
-	u32 i;
-	for(i=0;i<24576;i++)
-	{
-		Xil_Out64(0x20000000+8*i,i+1);
-	}
-
-	for(i=0;i<24576;i++)
-	{
-		Xil_Out64(0x20030000+8*i,i+2);
-	}
-	for(i=0;i<24576;i++)
-	{
-		Xil_Out64(0x20060000+8*i,i+3);
-	}
-	for(i=0;i<24576;i++)
-	{
-		Xil_Out64(0x20090000+8*i,i+4);
-	}
 
 	return XST_SUCCESS;
 }

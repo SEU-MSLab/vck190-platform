@@ -21,7 +21,8 @@
 
 
 extern volatile int TcpTmrFlag;
-XTtcPs Timer;
+extern volatile int TcpTmrErrorCount;
+extern XTtcPs Timer;
 
 typedef struct {
 	u32 OutputHz;	/* Output frequency */
@@ -30,11 +31,6 @@ typedef struct {
 	u16 Options;	/* Option settings */
 } TmrCntrSetup;
 
-static TmrCntrSetup SettingsTable[NUM_DEVICES] = {
-	//TODO: 確定下輸出的頻率是否是4？
-	{200, 0, 0, 0}, /* Only need to set output frequency */
-
-};
 
 
 
@@ -44,8 +40,9 @@ static TmrCntrSetup SettingsTable[NUM_DEVICES] = {
 #define TIMER_IRPT_INTR     XPAR_XTTCPS_0_INTR
 #define TIMER_LOAD_VALUE    XPAR_CPU_CORTEXA72_0_CPU_CLK_FREQ_HZ / 8 //0.25S
 
-static void TimerIntrHandler(void *CallBackRef, u32 StatusEvent);
+void TimerIntrHandler(void *CallBackRef);
 void Timer_start();
 void Timer_Setup_Intr_System();
 int Timer_init();
+void platform_clear_interrupt( XTtcPs * TimerInstance );
 #endif /* TIMER_INTR_H_ */

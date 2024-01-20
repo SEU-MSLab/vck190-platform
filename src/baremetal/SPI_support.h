@@ -8,22 +8,21 @@
 
 #include "xgpio.h"
 #include "xparameters.h"
-//#include "cc.h"
-
-XGpio AD_SDIO;
-XGpio AD_CS_SCK;
-
-XGpio DA_SDIO_SDO;
-XGpio DA_CS_SCLK;
+#include "sleep.h"
 
 void delay(int delay_num);
-//Init function
-int DA_GPIO_Init();
+// Init function
+int DACLK_GPIO_Init();
 int AD_GPIO_Init();
-//DA SPI
-void DA_Write(u16_t Addr,u8_t Data);
-u8_t DA_Read(u16_t Addr);
-//AD SPI
-void AD_Write(u16_t Addr,u8_t Data);
-u8_t AD_Read(u16_t Addr);
+// DA SPI
+void DA_Write(u16 Addr,u8 Data);
+u8 DA_Read(u16 Addr);
+// CLK SPI
+void CLK_Write(u16 Addr,u8 Data);
+u8 CLK_Read(u16 Addr);
+// AD SPI
+void AD_Write(u16 Addr,u8 Data);
+u8 AD_Read(u16 Addr);
+void AD_Write_4wire(u16 Addr, u8 Data);
+u8 AD_Read_4wire(u16 Addr);
 
