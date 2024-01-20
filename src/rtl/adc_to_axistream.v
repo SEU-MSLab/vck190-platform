@@ -1,6 +1,7 @@
-// r始代码来源于https://mp.weixin.qq.com/s/o7AfM_9JmmhVgL6vWvMPfw
+// 代码来源于https://mp.weixin.qq.com/s/o7AfM_9JmmhVgL6vWvMPfw
 // 米联客裸机CH28 利用LWIP实现ADC DAQ7606数据采集教程
 // 进行了部分修改
+`include "defines.sv"
 module adc_to_axistream #(
     parameter ADC_DWIDTH = 256
 ) (

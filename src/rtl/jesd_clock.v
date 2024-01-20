@@ -1,3 +1,4 @@
+`include "defines.sv"
 `ifndef ARCH
 `define ARCH "VERSAL"
 `endif
