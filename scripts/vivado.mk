@@ -71,7 +71,7 @@ vivado: $(PROJECT).xpr
 	vivado $(PROJECT).xpr
 
 tmpclean::
-	-rm -rf *.log *.jou *.cache *.gen *.hbs *.hw *.ip_user_files *.runs *.xpr *.html *.xml *.sim *.srcs *.str .Xil defines.v
+	-rm -rf *.log *.jou *.cache *.gen *.hbs *.hw *.ip_user_files *.runs *.xpr *.html *.xml *.sim *.srcs *.str .Xil defines.svh
 	-rm -rf create_project.tcl update_config.tcl run_synth.tcl run_impl.tcl generate_pdi.tcl
 
 clean:: tmpclean
@@ -87,13 +87,11 @@ distclean:: clean
 
 # Vivado project file
 create_project.tcl: Makefile $(XCI_FILES_REL) $(IP_TCL_FILES_REL) $(BD_TCL_FILES_REL) $(CONFIG_TCL_FILES_REL)
-	rm -rf defines.sv
-	touch defines.sv
-	for x in $(DEFS); do echo '`define' $$x >> defines.sv; done
-	$(foreach def, $(DEFS_DICT), echo '`define $(subst =, ,$(def))' >> defines.sv;)
+	[ -e "defines.svh" ] || touch defines.svh; for x in $(DEFS); do echo '`define' $$x >> defines.svh; done
+	$(foreach def, $(DEFS_DICT), echo '`define $(subst =, ,$(def))' >> defines.svh;)
 	echo "create_project -force -part $(FPGA_PART) $(PROJECT)" > $@
 	echo "set_property board_part $(FPGA_BOARD) [current_project]" >> $@
-	echo "add_files -fileset sources_1 defines.sv $(SYN_FILES_REL)" >> $@
+	echo "add_files -fileset sources_1 defines.svh $(SYN_FILES_REL)" >> $@
 	echo "add_files -fileset constrs_1 $(XDC_FILES_REL)" >> $@
 	for x in $(XCI_FILES_REL); do echo "import_ip $$x" >> $@; done
 	for x in $(IP_TCL_FILES_REL); do echo "source $$x" >> $@; done
