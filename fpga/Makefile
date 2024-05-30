@@ -32,7 +32,7 @@ SW_DIR := src/sw
 C_SRC_FILE := $(wildcard $(SW_DIR)/*.c)
 C_HDR_FILE := $(wildcard $(SW_DIR)/*.h)
 
-include ../scripts/vitis.mk
+# include ../scripts/vitis.mk
 
 program: $(FPGA_TOP).bit
 	echo "open_hw_manager" > program.tcl
